@@ -4,16 +4,10 @@ import kafka.registration.plate.IKafkaConstants;
 import mail.EmailService;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 
 import javax.mail.MessagingException;
-import javax.mail.internet.MimeMessage;
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -22,6 +16,8 @@ import java.util.Map;
 public class ValidatedRegistrationPlateMailSender {
 
     private final static String path_to_image = "/Users/ionutvacariu/PycharmProjects/woodDetectorPython/darknetW/detectedPlates/img";
+    public static final String UNIDENTIFIED = "unidentified";
+
     @Autowired
     private EmailService emailService;
 
@@ -34,14 +30,11 @@ public class ValidatedRegistrationPlateMailSender {
                         + "Current date " + localDate);
     }
 
-    public void sendMail(String registrationPlate, String path_to_image, String path_to_large_image) {
-        LocalDateTime localDateTime = LocalDateTime.now();
-        LocalDate localDate = localDateTime.toLocalDate();
+    public void sendMail(String path_to_image, String path_to_large_image, String text) {
         try {
             emailService.sendMessageWithAttachment("ionut.vacariu123@gmail.com",
                     "Notice Warning",
-                    "The following car seems to not have a notice " + registrationPlate + "\n"
-                            + "Current date " + localDate, path_to_image, path_to_large_image);
+                    text, path_to_image, path_to_large_image);
         } catch (MessagingException e) {
             System.out.println("!!!!±±±±±±±±±±± NU AM PUTUT TRIMITE EMAIL !!!!!!!±±±±±±±±±#########@@@@@@@@@@!!!!!!!");
 
@@ -66,16 +59,31 @@ public class ValidatedRegistrationPlateMailSender {
             //print each record.
             consumerRecords.forEach(record ->
             {
-                if (record.value() != null && !record.value().getIsValid()) {
-                    String path_to_attach = record.value().getRegistrationPlate().getImgPath();
-                    sendMail(record.value().getRegistrationPlate().getRegPlate(),
-                            getCompletePath(path_to_attach), getCompletePathToLargeFile(path_to_attach));
+                LocalDateTime localDateTime = LocalDateTime.now();
+                LocalDate localDate = localDateTime.toLocalDate();
+                ValidatedRegistrationPlate value = record.value();
+                if (value != null && !value.getIsValid()) {
+                    if (UNIDENTIFIED.equals(value.getRegistrationPlate().getRegPlate())) {
+                        String path_to_attach = value.getRegistrationPlate().getImgPath();
+                        String text = "The following car cannot be identified" + "\n"
+                                + "Please visit  http://www.inspectorulpadurii.ro to check it";
+                        sendMail(
+                                "noResizedImage", getCompletePathToLargeFile(path_to_attach), text);
+                    } else {
+                        sendIdentifiedMail(value, localDate);
+                    }
                 }
             });
-            // commits the offset of record to broker.
             consumer.commitAsync(); // sent ack to kafka ( to remove message from kafka )
         }
         consumer.close();
+    }
+
+    private void sendIdentifiedMail(ValidatedRegistrationPlate value, LocalDate localDate) {
+        String path_to_attach = value.getRegistrationPlate().getImgPath();
+        sendMail(
+                getCompletePath(path_to_attach), getCompletePathToLargeFile(path_to_attach), "The following car seems to not have a notice " + value.getRegistrationPlate().getRegPlate() + "\n"
+                        + "Current date " + localDate);
     }
 
     private String getCompletePath(String s) {
@@ -87,7 +95,6 @@ public class ValidatedRegistrationPlateMailSender {
     private String getCompletePathToLargeFile(String s) {
         String[] split = s.split("/");
         String s1 = split[split.length - 1];
-        String[] split1 = s1.split("\\.");
 
         int lastDot = s1.lastIndexOf(".");
 
